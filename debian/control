@@ -1,0 +1,13 @@
+Source: loki-boot
+Section: admin
+Priority: optional
+Maintainer: Alexander Wei <alex@alexwei.net>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: loki-boot
+Architecture: all
+Depends: ${misc:Depends}, bash, curl, jq, coreutils
+Description: Send a boot event to Grafana Loki
+ Sends a single boot event containing the instance's private IP.
