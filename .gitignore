@@ -1,1 +1,7 @@
 .idea
+
+loki-boot/loki-boot
+
+*.deb
+*.buildinfo
+*.changes
