@@ -1,0 +1,27 @@
+name: Automated Release
+on:
+  push:
+    tags:
+      - 'v*'
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install
+      - name: Build Docker image
+        run: docker build -t loki-boot .
+      - name: Push to registry
+        run: |
+          echo "${{ secrets.REGISTRY_USER }}:${{ secrets.REGISTRY_PASSWORD }}" | docker login -u $REGISTRY_USER --password-stdin $REGISTRY_URL
+          docker push loki-boot
+        env:
+          REGISTRY_URL: "your-registry-url"
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
