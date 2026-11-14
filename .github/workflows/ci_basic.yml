@@ -1,0 +1,28 @@
+name: Basic CI Test
+
+on:
+  push:
+    branches:
+      - master
+      - docker-release
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          # Placeholder for actual dependency installation
+          echo "Installing dependencies..."
+      - name: Run tests
+        run: |
+          echo "Running tests for loki-boot..."
+          # Placeholder for actual test command (e.g., pytest)
