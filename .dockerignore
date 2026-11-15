@@ -1,0 +1,17 @@
+tmp/
+logs/
+*.md
+Dockerfile.build
+*.build
+*.tmp
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.DS_Store
+.git
+.idea
+venv/
+node_modules/
+bower_components/
+*.lock

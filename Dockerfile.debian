@@ -1,0 +1,30 @@
+# Dockerfile for Debian-based event publisher sidecar
+
+# Use official Debian slim image as base
+FROM debian:bookworm-slim
+
+# Install necessary runtime dependencies
+RUN apt-get update \
+    && apt-get install -y \
+    curl \
+    jq \
+    hostname \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -ms /bin/bash nonroot
+
+# Set working directory
+WORKDIR /app
+
+# Copy application binary (replace with actual build command)
+COPY loki-boot/debian/loki-boot.sh /app/publisher
+
+# Set executable permission
+RUN chmod +x /app/publisher
+
+# Set entrypoint
+ENTRYPOINT ["/app/publisher"]
+
+# Set user
+USER nonroot
