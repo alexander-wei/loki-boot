@@ -1,0 +1,22 @@
+# Dockerfile for Alpine-based event publisher sidecar
+
+# Use official Alpine image as base
+FROM alpine:3.18
+
+# Install necessary runtime dependencies
+RUN apk add --no-cache \n    ca-certificates \n    && rm -rf /var/cache/apk/*
+
+# Create non-root user
+RUN adduser -D -g '' nonroot
+
+# Set working directory
+WORKDIR /app
+
+# Copy application binary (replace with actual build command)
+# COPY publisher /app/publisher
+
+# Set entrypoint
+ENTRYPOINT ["/app/publisher"]
+
+# Set user
+USER nonroot
