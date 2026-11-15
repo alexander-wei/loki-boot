@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
     - name: Checkout code
@@ -32,4 +35,4 @@ jobs:
         context: .
         file: Dockerfile.debian
         push: true
-        tags: "ghcr.io/dev1-alexwei-net/loki-boot:latest"
+        tags: "ghcr.io/${{ github.repository }}:latest"
