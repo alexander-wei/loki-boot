@@ -15,7 +15,7 @@ RUN adduser -D -g '' nonroot
 WORKDIR /app
 
 # Copy application binary (replace with actual build command)
-COPY debian/loki-boot.sh /app/publisher
+COPY loki-boot/debian/loki-boot.sh /app/publisher
 
 # Set entrypoint
 ENTRYPOINT ["/app/publisher"]
