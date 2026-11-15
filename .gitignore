@@ -5,3 +5,5 @@ loki-boot/loki-boot
 *.deb
 *.buildinfo
 *.changes
+
+__pycache__/
