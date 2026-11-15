@@ -57,7 +57,8 @@ class PublisherTests(unittest.TestCase):
             process_env = {
                 k: v for k, v in os.environ.items()
                 if k not in {"PRIVATE_IP", "ECS_CONTAINER_METADATA_URI_V4",
-                             "ECS_CONTAINER_METADATA_URI", "AWS_EXECUTION_ENV"}
+                             "ECS_CONTAINER_METADATA_URI", "AWS_EXECUTION_ENV",
+                             "ECS_NETWORK_MODE"}
             }
             process_env.update(
                 PATH=f"{root}:{os.environ['PATH']}", MOCK_ROOT=str(root),
@@ -184,6 +185,78 @@ class PublisherTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertIsNone(payload)
         self.assertIn("metadata URI is missing", result.stderr)
+
+    def test_host_mode_uses_imdsv2_primary_ip_not_container_metadata(self):
+        for metadata_uri in ("", METADATA_URI):
+            with self.subTest(metadata_uri=metadata_uri):
+                result, calls, payload = self.run_publisher([
+                    {"body": "test-session-token"}, {"body": "10.8.9.10"}
+                ], env={"ECS_NETWORK_MODE": "host",
+                        "ECS_CONTAINER_METADATA_URI_V4": metadata_uri,
+                        "AWS_EXECUTION_ENV": "AWS_ECS_EC2"})
+                self.assert_published(result, payload, "10.8.9.10")
+                token_args = calls[0][1]
+                ip_args = calls[1][1]
+                self.assertEqual(token_args[-1], "http://169.254.169.254/latest/api/token")
+                self.assertEqual(token_args[token_args.index("-X") + 1], "PUT")
+                self.assertIn("X-aws-ec2-metadata-token-ttl-seconds: 60", token_args)
+                self.assertEqual(ip_args[-1], "http://169.254.169.254/latest/meta-data/local-ipv4")
+                self.assertIn("X-aws-ec2-metadata-token: test-session-token", ip_args)
+                for args in (token_args, ip_args):
+                    for flag, value in (("--noproxy", "*"), ("--connect-timeout", "2"), ("--max-time", "5")):
+                        self.assertEqual(args[args.index(flag) + 1], value)
+                self.assertNotIn("hostname", [name for name, _ in calls])
+
+    def test_host_mode_retries_imds_failures(self):
+        for failed in ([{"status": 28}],
+                       [{"body": "test-token"}, {"status": 22}],
+                       [{"body": "test-token"}, {"body": "127.0.0.1"}]):
+            with self.subTest(failed=failed):
+                result, calls, payload = self.run_publisher(
+                    failed + [{"body": "test-token"}, {"body": "10.8.9.10"}],
+                    env={"ECS_NETWORK_MODE": "host"}
+                )
+                self.assert_published(result, payload, "10.8.9.10")
+                self.assertIn(["sleep", ["2"]], calls)
+
+    def test_host_imds_failure_is_bounded_without_unsafe_fallback(self):
+        for response in ({"status": 22}, {"status": 28}, {"body": ""}, {"body": "999.1.2.3"}):
+            with self.subTest(response=response):
+                result, calls, payload = self.run_publisher(
+                    [response], env={"ECS_NETWORK_MODE": "host"}
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIsNone(payload)
+                expected_requests = 10 if response.get("body") else 5
+                self.assertEqual(sum(name == "curl" for name, _ in calls), expected_requests)
+                self.assertEqual(sum(name == "sleep" for name, _ in calls), 4)
+                self.assertNotIn("hostname", [name for name, _ in calls])
+                self.assertIn("enable EC2 IMDSv2 access", result.stderr)
+
+    def test_host_override_bypasses_imds(self):
+        result, calls, payload = self.run_publisher(env={
+            "ECS_NETWORK_MODE": "host", "PRIVATE_IP": "10.8.9.10"
+        })
+        self.assert_published(result, payload, "10.8.9.10")
+        self.assertEqual(len(calls), 1)
+
+    def test_explicit_awsvpc_does_not_query_imds(self):
+        result, calls, payload = self.run_publisher(env={"ECS_NETWORK_MODE": "awsvpc"})
+        self.assert_published(result, payload)
+        self.assertEqual(calls[0][1][-1], METADATA_URI)
+        result, calls, payload = self.run_publisher(env={
+            "ECS_NETWORK_MODE": "awsvpc", "ECS_CONTAINER_METADATA_URI_V4": ""
+        })
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(calls, [])
+        self.assertIsNone(payload)
+
+    def test_invalid_network_mode_fails_explicitly(self):
+        result, calls, payload = self.run_publisher(env={"ECS_NETWORK_MODE": "hots"})
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(calls, [])
+        self.assertIsNone(payload)
+        self.assertIn("ECS_NETWORK_MODE must be", result.stderr)
 
     def test_loki_failure_remains_visible(self):
         result, _, payload = self.run_publisher(push_status=22)

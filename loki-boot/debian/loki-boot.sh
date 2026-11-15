@@ -16,6 +16,30 @@ valid_ipv4() {
   [[ "${octets[0]}.${octets[1]}" != 169.254 ]]
 }
 
+discover_ec2_ip() {
+  local attempt token candidate
+  # Host tasks share the instance network, but hostname -I can include Docker
+  # bridge interfaces. IMDSv2 identifies the primary EC2 private IP precisely.
+  for attempt in {1..5}; do
+    if token=$(curl -fsS --noproxy '*' --connect-timeout 2 --max-time 5 \
+        -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+        http://169.254.169.254/latest/api/token) && [[ -n "$token" ]]; then
+      if candidate=$(curl -fsS --noproxy '*' --connect-timeout 2 --max-time 5 \
+          -H "X-aws-ec2-metadata-token: $token" \
+          http://169.254.169.254/latest/meta-data/local-ipv4); then
+        if valid_ipv4 "$candidate"; then
+          printf '%s\n' "$candidate"
+          return 0
+        fi
+      fi
+    fi
+    echo "EC2 host metadata attempt $attempt/5: no usable primary private IPv4 address" >&2
+    if (( attempt < 5 )); then sleep 2; fi
+  done
+  echo "Could not determine the ECS host IPv4 address; enable EC2 IMDSv2 access or set PRIVATE_IP explicitly" >&2
+  return 1
+}
+
 discover_ip() {
   local metadata_uri metadata candidates candidate endpoint attempt addresses
 
@@ -27,6 +51,12 @@ discover_ip() {
     echo "PRIVATE_IP must be a usable IPv4 address" >&2
     return 1
   fi
+
+  case "${ECS_NETWORK_MODE:-auto}" in
+    host) discover_ec2_ip; return $? ;;
+    auto|awsvpc) ;;
+    *) echo "ECS_NETWORK_MODE must be auto, awsvpc, or host" >&2; return 1 ;;
+  esac
 
   metadata_uri=${ECS_CONTAINER_METADATA_URI_V4:-${ECS_CONTAINER_METADATA_URI:-}}
   if [[ -n "$metadata_uri" ]]; then
@@ -53,12 +83,12 @@ discover_ip() {
       echo "ECS metadata attempt $attempt/5: no usable awsvpc IPv4 address (unavailable, invalid JSON, or missing address)" >&2
       if (( attempt < 5 )); then sleep 2; fi
     done
-    echo "Could not determine the ECS task awsvpc IPv4 address; check ECS metadata access/network mode or set PRIVATE_IP explicitly" >&2
+    echo "Could not determine the ECS task awsvpc IPv4 address; check metadata access, set ECS_NETWORK_MODE=host for host tasks, or set PRIVATE_IP explicitly" >&2
     return 1
   fi
 
-  if [[ "${AWS_EXECUTION_ENV:-}" == AWS_ECS* ]]; then
-    echo "ECS metadata URI is missing; enable ECS container metadata or set PRIVATE_IP explicitly" >&2
+  if [[ "${AWS_EXECUTION_ENV:-}" == AWS_ECS* || "${ECS_NETWORK_MODE:-auto}" == awsvpc ]]; then
+    echo "ECS metadata URI is missing; enable ECS metadata, set ECS_NETWORK_MODE=host for host tasks, or set PRIVATE_IP explicitly" >&2
     return 1
   fi
 
