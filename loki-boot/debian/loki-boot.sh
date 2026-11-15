@@ -105,6 +105,27 @@ discover_ip() {
   return 1
 }
 
+SERVICE_PORT=${SERVICE_PORT:-}
+SERVICE_PROTOCOL=${SERVICE_PROTOCOL:-}
+SERVICE_URI=${SERVICE_URI:-}
+
+if [[ -n "$SERVICE_PORT" ]]; then
+  if ! [[ "$SERVICE_PORT" =~ ^[1-9][0-9]{0,4}$ ]] || ((SERVICE_PORT > 65535)); then
+    echo "SERVICE_PORT must be an integer between 1 and 65535" >&2
+    exit 1
+  fi
+fi
+
+if [[ -n "$SERVICE_PROTOCOL" && "$SERVICE_PROTOCOL" != "http" && "$SERVICE_PROTOCOL" != "https" ]]; then
+  echo "SERVICE_PROTOCOL must be either 'http' or 'https'" >&2
+  exit 1
+fi
+
+if [[ -n "$SERVICE_URI" && "$SERVICE_URI" != /* ]]; then
+  echo "SERVICE_URI must be a path beginning with '/'" >&2
+  exit 1
+fi
+
 IP=$(discover_ip)
 TS=$(date +%s%N)
 
@@ -112,7 +133,16 @@ DATA=$(jq -nc \
   --arg service "$SERVICE_NAME" \
   --arg ip "$IP" \
   --arg ts "$TS" \
-  '{streams:[{stream:{service_name:$service},values:[[$ts, ({private_ip:$ip,timestamp:$ts} | tojson)]]}]}')
+  --arg port "$SERVICE_PORT" \
+  --arg protocol "$SERVICE_PROTOCOL" \
+  --arg uri "$SERVICE_URI" \
+  '{streams:[{stream:{service_name:$service},values:[[$ts, (
+    {private_ip:$ip,timestamp:$ts}
+    + (if $port == "" then {} else {port:($port | tonumber)} end)
+    + (if $protocol == "" then {} else {protocol:$protocol} end)
+    + (if $uri == "" then {} else {uri:$uri} end)
+    | tojson
+  )]]}]}')
 
 curl -sS --fail-with-body --retry 5 --retry-delay 3 \
   -u "$LOKI_USER:$LOKI_TOKEN" \
