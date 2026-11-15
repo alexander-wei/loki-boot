@@ -6,6 +6,7 @@ FROM alpine:3.18
 # Install necessary runtime dependencies
 RUN apk add --no-cache \
     ca-certificates \
+    bash \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user
