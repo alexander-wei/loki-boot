@@ -32,4 +32,4 @@ jobs:
         context: .
         file: Dockerfile.debian
         push: true
-        tags: "ghcr.io/dev1-alexwei-net/loki-boot:latest"
+        tags: "latest"
