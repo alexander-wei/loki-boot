@@ -52,6 +52,11 @@ class PublisherTests(unittest.TestCase):
             mock.chmod(0o755)
             for command in ("curl", "hostname", "sleep"):
                 (root / command).symlink_to(mock)
+            if responses and "jq" in responses:
+                jq = root / "jq"
+                lines = responses.pop("jq")
+                jq.write_text("\n".join(lines))
+                jq.chmod(0o755)
             config["responses"] = responses or [{"body": network("10.0.1.247")}]
             (root / "config.json").write_text(json.dumps(config))
             process_env = {
@@ -258,10 +263,65 @@ class PublisherTests(unittest.TestCase):
         self.assertIsNone(payload)
         self.assertIn("ECS_NETWORK_MODE must be", result.stderr)
 
+    def test_jq_failure_fails_the_script(self):
+        result, _, _ = self.run_publisher(
+            {
+                "jq": [
+                    "#!/bin/sh\n",
+                    "echo 'jq: parse error' >&2\n",
+                    "exit 2\n",
+                ]
+            }
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("jq: parse error", result.stderr)
+
     def test_loki_failure_remains_visible(self):
         result, _, payload = self.run_publisher(push_status=22)
         self.assertEqual(result.returncode, 22)
         self.assertIsNotNone(payload)
+
+    def test_optional_url_metadata_with_private_ip_override(self):
+        # Smoke test for #39: exercise the real jq payload generation with the
+        # optional URL settings configured. PRIVATE_IP skips IP discovery and
+        # the curl stub keeps the push off the network.
+        result, calls, payload = self.run_publisher(
+            env={
+                "PRIVATE_IP": "10.42.0.7",
+                "SERVICE_PORT": "8080",
+                "SERVICE_PROTOCOL": "https",
+                "SERVICE_URI": "/api/v1",
+            }
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 1)  # Only the Loki push.
+        self.assertEqual(calls[0][0], "curl")
+        self.assertEqual(calls[0][1][-1], "https://loki.example/loki/api/v1/push")
+        stream = payload["streams"][0]
+        self.assertEqual(stream["stream"], {"service_name": "test-service"})
+        timestamp, line = stream["values"][0]
+        self.assertTrue(timestamp.isdigit())
+        value = json.loads(line)
+        self.assertEqual(value["private_ip"], "10.42.0.7")
+        self.assertEqual(value["port"], 8080)
+        self.assertEqual(value["protocol"], "https")
+        self.assertEqual(value["uri"], "/api/v1")
+
+    def test_jq_failure_fails_the_script(self):
+        # Smoke test for #39: a failing jq must fail the script.
+        result, calls, payload = self.run_publisher(
+            env={"PRIVATE_IP": "10.42.0.7"},
+            responses={"jq": [
+                "#!/bin/sh\n",
+                "echo 'jq: parse error' >&2\n",
+                "exit 2\n",
+            ]}
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("jq: parse error", result.stderr)
+        self.assertEqual(calls, [])
+        self.assertIsNone(payload)
 
 
 if __name__ == "__main__":
